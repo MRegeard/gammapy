@@ -128,7 +128,6 @@ class FixedPointingInfo:
         self,
         meta=None,
         *,
-        mode=None,
         fixed_icrs=None,
         fixed_altaz=None,
         # these have nothing really to do with pointing_info
@@ -152,13 +151,6 @@ class FixedPointingInfo:
             self._meta = meta
             self.__dict__.update(self.from_fits_header(meta).__dict__)
             return
-
-        if mode is not None:
-            warnings.warn(
-                "Passing mode is deprecated and the argument will be removed in Gammapy 1.3."
-                " pointing mode is deduced from whether fixed_icrs or fixed_altaz is given",
-                GammapyDeprecationWarning,
-            )
 
         self._location = location
         self._time_start = time_start
