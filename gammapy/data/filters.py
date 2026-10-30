@@ -2,10 +2,132 @@
 import copy
 import html
 import logging
+import abc
+import numpy as np
+import operator
+from .event_list import EventList
+from .obs_table import ObservationTable
 
 __all__ = ["ObservationFilter"]
 
 log = logging.getLogger(__name__)
+
+
+class Filter:
+    def mask(self, target):
+        NotImplemented
+
+    def __and__(self, other):
+        return And(self, other)
+
+    def __or__(self, other):
+        return Or(self, other)
+
+    def __invert__(self):
+        return Not(self)
+
+    def apply(self, obj):
+        if isinstance(obj, EventList):
+            return obj.select_row_subset(self.mask(obj))
+        elif isinstance(obj, ObservationTable):
+            return obj[self.mask(obj)]
+        else:
+            raise TypeError("Bad type given to filter")
+
+
+class And(Filter):
+    def __init__(self, *filters):
+        self.filters = filters
+
+    def mask(self, obj):
+        return np.logical_and.reduce([f.mask(obj) for f in self.filters])
+
+    def __repr__(self):
+        return "(" + " & ".join(map(repr, self.filters)) + ")"
+
+
+class Or(Filter):
+    def __init__(self, *filters):
+        self.filters = filters
+
+    def mask(self, obj):
+        return np.logical_or.reduce([f.mask(obj) for f in self.filters])
+
+    def __repr__(self):
+        return "(" + " | ".join(map(repr, self.filters)) + ")"
+
+
+class Not(Filter):
+    def __init__(self, filter):
+        self.filter = filter
+
+    def mask(self, obj):
+        return ~self.filter.mask(obj)
+
+    def __repr__(self):
+        return f"~{self.filter!r}"
+
+
+class Compare(Filter):
+    _symbols = {
+        operator.lt: "<",
+        operator.le: "<=",
+        operator.gt: ">",
+        operator.ge: ">=",
+        operator.eq: "==",
+        operator.ne: "!=",
+    }
+
+    def __init__(self, name, op, value):
+        self.name = name
+        self.op = op
+        self.value = value
+
+    def mask(self, obj):
+        return self.op(resolve(obj, self.name), self.value)
+
+    def __repr__(self):
+        return f"{self.name} {self._symbols[self.op]} {self.value}"
+
+
+def resolve(obj, name):
+    value = getattr(obj, name, None)
+    if value is not None and not callable(value):
+        return value
+    if isinstance(obj, EventList):
+        if obj.table[name].unit is None:
+            return obj.table[name]
+        return obj.table[name].quantity
+    if isinstance(obj, ObservationTable):
+        if obj[name].unit is None:
+            return obj[name]
+        return obj[name].quantity
+
+
+class Field:
+    def __init__(self, name):
+        self.name = name
+
+    def __lt__(self, v):
+        return Compare(self.name, operator.lt, v)
+
+    def __le__(self, v):
+        return Compare(self.name, operator.le, v)
+
+    def __gt__(self, v):
+        return Compare(self.name, operator.gt, v)
+
+    def __ge__(self, v):
+        return Compare(self.name, operator.ge, v)
+
+    def __eq__(self, v):
+        return Compare(self.name, operator.eq, v)
+
+    def __ne__(self, v):
+        return Compare(self.name, operator.ne, v)
+
+    def between(self, lo, hi):
+        return (self >= lo) & (self < hi)
 
 
 class ObservationFilter:
